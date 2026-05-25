@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Monitor</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <header class="hero">
+            <div>
+                <div class="badge">ARP gateway + ping</div>
+                <h1>Мониторинг локальной сети</h1>
+                <p>Сначала приложение берёт роутер из ARP-таблицы, потом перебирает IP подсети и сохраняет только те устройства, которые отвечают на 4 ping-пакета.</p>
+            </div>
+            <button id="scanBtn">Запустить сканирование</button>
+        </header>
+
+        <section class="cards">
+            <div class="card"><span>Gateway</span><strong id="gateway">—</strong></div>
+            <div class="card"><span>Current IP</span><strong id="currentIp">—</strong></div>
+            <div class="card"><span>Подсеть</span><strong id="subnet">—</strong></div>
+            <div class="card"><span>Устройств</span><strong id="count">0</strong></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Найденные устройства</h2>
+                <span id="updated">Ожидание данных...</span>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>IP</th>
+                        <th>Тип</th>
+                        <th>Статус</th>
+                        <th>Hostname</th>
+                        <th>Средний ping</th>
+                        <th>Packet loss</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
