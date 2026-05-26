@@ -61,4 +61,4 @@ async function runScan() {
 scanBtn.addEventListener("click", runScan);
 
 load();
-setInterval(load, 5000);
+setInterval(load, 1000);
