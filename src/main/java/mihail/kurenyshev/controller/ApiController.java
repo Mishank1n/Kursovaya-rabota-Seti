@@ -1,12 +1,12 @@
 package mihail.kurenyshev.controller;
 
-
 import mihail.kurenyshev.entity.NetworkDevice;
 import mihail.kurenyshev.entity.ScanRun;
 import mihail.kurenyshev.service.NetworkScanService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -22,6 +22,15 @@ public class ApiController {
     @GetMapping("/devices")
     public List<NetworkDevice> devices() {
         return scanService.getDevices();
+    }
+
+    /**
+     * Лёгкий эндпоинт: только ip + статус + пинг.
+     * Используется для быстрого обновления пинга в UI (каждые 1-2 сек).
+     */
+    @GetMapping("/ping-status")
+    public List<Map<String, Object>> pingStatus() {
+        return scanService.getPingStatus();
     }
 
     @GetMapping("/gateway")
