@@ -22,16 +22,12 @@ public class ArpService {
     private static final Pattern IPV4_PATTERN =
             Pattern.compile("\\b(\\d{1,3}(?:\\.\\d{1,3}){3})\\b");
     private static final Pattern MAC_PATTERN =
-            Pattern.compile("(?i)\\b([0-9a-f]{2}(?:[:-][0-9a-f]{2}){5})\\b");
+            Pattern.compile("(?i)\\b([0-9a-f]{1,2}(?:[:-][0-9a-f]{1,2}){5})\\b");
 
     public List<String> getArpIpsInOrder() {
         return new ArrayList<>(getArpMacByIp().keySet());
     }
 
-    /**
-     * Исторический метод: в проекте его использовали как "gateway".
-     * Оставляем совместимость и возвращаем адрес шлюза по умолчанию.
-     */
     public String getFirstArpIp() {
         return getGatewayIp();
     }
@@ -86,6 +82,87 @@ public class ArpService {
             return null;
         }
         return getArpMacByIp().get(ip);
+    }
+
+
+    public String getMacForIpWithRetry(String ip, int retries, long pauseMs) {
+        if (ip == null || ip.isBlank()) return null;
+
+        for (int attempt = 0; attempt < retries; attempt++) {
+            String mac = readMacDirectly(ip);
+            if (mac != null) return mac;
+
+            if (attempt < retries - 1) {
+                try { Thread.sleep(pauseMs); } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String readMacDirectly(String ip) {
+        String[] commands = {
+                "ip neigh show " + ip,
+                "arp -n " + ip,
+                "arp "    + ip
+        };
+        for (String cmd : commands) {
+            List<String> lines = new ArrayList<>();
+            readCommandLines(cmd, lines);
+            for (String line : lines) {
+                String lower = line.toLowerCase(Locale.ROOT);
+                if (lower.contains("incomplete") || lower.contains("failed")
+                        || lower.contains("no entry")) continue;
+                String mac = extractMac(line);
+                if (mac != null) return mac;
+            }
+        }
+        return null;
+    }
+
+
+    public String getCurrentMac() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface nic = interfaces.nextElement();
+                try {
+                    if (!nic.isUp() || nic.isLoopback() || nic.isVirtual()) {
+                        continue;
+                    }
+                } catch (Exception ignored) {
+                    continue;
+                }
+
+                // Убеждаемся, что интерфейс имеет IPv4-адрес (не link-local)
+                boolean hasRealIp = false;
+                Enumeration<InetAddress> addrs = nic.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof Inet4Address ipv4
+                            && !ipv4.isLoopbackAddress()
+                            && !ipv4.isLinkLocalAddress()) {
+                        hasRealIp = true;
+                        break;
+                    }
+                }
+                if (!hasRealIp) continue;
+
+                byte[] hw = nic.getHardwareAddress();
+                if (hw != null && hw.length == 6) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < hw.length; i++) {
+                        if (i > 0) sb.append(':');
+                        sb.append(String.format("%02x", hw[i] & 0xFF));
+                    }
+                    return sb.toString();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public String getCurrentIp() {

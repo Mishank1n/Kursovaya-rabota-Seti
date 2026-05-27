@@ -1,43 +1,45 @@
 /* ─── Network Monitor – script.js ─────────────────────────────────────────── */
 
-const gatewayEl = document.getElementById("gateway");
-const currentIpEl = document.getElementById("currentIp");
-const subnetEl = document.getElementById("subnet");
-const countEl = document.getElementById("count");
-const updatedEl = document.getElementById("updated");
-const tbody = document.getElementById("tbody");
-const scanBtn = document.getElementById("scanBtn");
+const gatewayEl    = document.getElementById("gateway");
+const currentIpEl  = document.getElementById("currentIp");
+const subnetEl     = document.getElementById("subnet");
+const countEl      = document.getElementById("count");
+const updatedEl    = document.getElementById("updated");
+const tbody        = document.getElementById("tbody");
+const scanBtn      = document.getElementById("scanBtn");
 
-const pingModal = document.getElementById("pingModal");
+const pingModal        = document.getElementById("pingModal");
 const closePingModalBtn = document.getElementById("closePingModal");
-const pingTitleEl = document.getElementById("pingTitle");
-const pingSubtitleEl = document.getElementById("pingSubtitle");
-const pingIpEl = document.getElementById("pingIp");
-const pingMacEl = document.getElementById("pingMac");
-const pingHostEl = document.getElementById("pingHost");
-const pingAvgEl = document.getElementById("pingAvg");
-const pingLastEl = document.getElementById("pingLast");
-const pingSamplesEl = document.getElementById("pingSamples");
-const chartCanvas = document.getElementById("pingChart");
-const chartTooltip = document.getElementById("chartTooltip");
-const chartCtx = chartCanvas ? chartCanvas.getContext("2d") : null;
+const pingTitleEl      = document.getElementById("pingTitle");
+const pingSubtitleEl   = document.getElementById("pingSubtitle");
+const pingIpEl         = document.getElementById("pingIp");
+const pingMacEl        = document.getElementById("pingMac");
+const pingHostEl       = document.getElementById("pingHost");
+const pingAvgEl        = document.getElementById("pingAvg");
+const pingLastEl       = document.getElementById("pingLast");
+const pingSamplesEl    = document.getElementById("pingSamples");
+const chartCanvas      = document.getElementById("pingChart");
+const chartTooltip     = document.getElementById("chartTooltip");
+const chartCtx         = chartCanvas ? chartCanvas.getContext("2d") : null;
 
 const state = {
-    devices: [],
-    scanning: false,
+    devices:      [],
+    scanning:     false,
     pingInterval: null,
-    selectedIp: null,
-    pingHistory: [],
+    selectedIp:   null,
+    pingHistory:  [],
     chartState: {
-        points: [],
+        points:  [],
         average: null,
-        min: null,
-        max: null,
+        min:     null,
+        max:     null,
         padding: null,
     },
     deviceCache: new Map(),
-    chartData: new Map(),
+    chartData:   new Map(),
 };
+
+/* ─── Утилиты ──────────────────────────────────────────────────────────────── */
 
 function now() {
     return new Date().toLocaleTimeString("ru-RU");
@@ -55,7 +57,7 @@ function formatMac(value) {
 
 function formatTimeLabel(date) {
     return new Intl.DateTimeFormat("ru-RU", {
-        hour: "2-digit",
+        hour:   "2-digit",
         minute: "2-digit",
         second: "2-digit",
     }).format(date);
@@ -70,17 +72,27 @@ function calculateAverage(samples) {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function randomMac() {
-    return Array.from({ length: 6 }, () =>
-        Math.floor(Math.random() * 256).toString(16).padStart(2, "0")
-    ).join(":");
+/* ─── API-запросы ──────────────────────────────────────────────────────────── */
+
+async function apiFetch(path, options) {
+    const response = await fetch(path, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status} on ${path}`);
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch {
+        return text; // plain-string endpoints (gateway, currentIp, subnet)
+    }
 }
 
-function mockPing() {
-    const base = 1 + Math.random() * 8;
-    const spike = Math.random() < 0.08 ? Math.random() * 40 : 0;
-    return Number((base + spike).toFixed(1));
-}
+async function fetchGateway()   { return apiFetch("/api/gateway"); }
+async function fetchCurrentIp() { return apiFetch("/api/current-ip"); }
+async function fetchSubnet()    { return apiFetch("/api/subnet"); }
+async function fetchDevices()   { return apiFetch("/api/devices"); }
+async function fetchPingStatus(){ return apiFetch("/api/ping-status"); }
+async function postScan()       { return apiFetch("/api/scan", { method: "POST" }); }
+
+/* ─── Таблица ──────────────────────────────────────────────────────────────── */
 
 function createStatusBadge(isOnline) {
     const wrapper = document.createElement("div");
@@ -117,54 +129,11 @@ function createIpCell(ip, clickable) {
     return td;
 }
 
-function mockScan() {
-    const base = "172.20.10";
-    const gateway = `${base}.1`;
-    const myIp = `${base}.2`;
-
-    const devices = [
-        {
-            ipAddress: gateway,
-            macAddress: randomMac(),
-            hostName: gateway,
-            deviceType: "ROUTER",
-            status: "ONLINE",
-            avgPingMs: 5.6,
-            packetLossPercent: 0.0,
-        },
-        {
-            ipAddress: `${base}.15`,
-            macAddress: "ff:ff:ff:ff:ff:ff",
-            hostName: `${base}.15`,
-            deviceType: "HOST",
-            status: "ONLINE",
-            avgPingMs: 0.2,
-            packetLossPercent: 0.0,
-        },
-        {
-            ipAddress: myIp,
-            macAddress: randomMac(),
-            hostName: myIp,
-            deviceType: "CURRENT_DEVICE",
-            status: "ONLINE",
-            avgPingMs: 0.1,
-            packetLossPercent: 0.0,
-        },
-    ];
-
-    return {
-        gateway,
-        myIp,
-        subnet: `${base}.0/24`,
-        devices,
-    };
-}
-
 function renderTable() {
     tbody.innerHTML = "";
 
     state.devices.forEach(device => {
-        const tr = document.createElement("tr");
+        const tr       = document.createElement("tr");
         const isOnline = device.status === "ONLINE";
 
         tr.appendChild(createIpCell(device.ipAddress, isOnline));
@@ -175,7 +144,6 @@ function renderTable() {
         tdStatus.appendChild(createStatusBadge(isOnline));
         tr.appendChild(tdStatus);
 
-        //tr.appendChild(createCell(device.hostName));
         tr.appendChild(createCell(isOnline ? formatMs(device.avgPingMs) : "—"));
         tr.appendChild(
             createCell(
@@ -189,74 +157,112 @@ function renderTable() {
     });
 }
 
+/* ─── Live-ping через /api/ping-status ─────────────────────────────────────── */
+
 function startLivePing() {
     if (state.pingInterval) clearInterval(state.pingInterval);
 
-    state.pingInterval = setInterval(() => {
-        state.devices.forEach(device => {
-            if (device.status !== "ONLINE") return;
+    state.pingInterval = setInterval(async () => {
+        let updates;
+        try {
+            updates = await fetchPingStatus();
+        } catch (err) {
+            console.warn("ping-status error:", err);
+            return;
+        }
 
-            const ms = mockPing();
-            const ip = device.ipAddress;
-            const history = state.chartData.get(ip) || [];
+        updates.forEach(item => {
+            const ip     = item.ip;
+            const ms     = (item.avgPingMs !== null && item.avgPingMs !== undefined)
+                           ? Number(item.avgPingMs)
+                           : null;
+            const loss   = (item.packetLossPercent !== null && item.packetLossPercent !== undefined)
+                           ? Number(item.packetLossPercent)
+                           : null;
+            const status = String(item.status);
 
-            history.push({ at: new Date(), ping: ms });
-            if (history.length > 120) history.shift();
-            state.chartData.set(ip, history);
+            // Обновляем кэш устройства
+            const cached = state.deviceCache.get(ip);
+            if (cached) {
+                cached.avgPingMs         = ms;
+                cached.packetLossPercent = loss;
+                cached.status            = status;
+                if (item.macAddress) cached.macAddress = item.macAddress;
+            }
 
-            device.avgPingMs = calculateAverage(history) ?? ms;
-            device.packetLossPercent = 0.0;
+            // Добавляем точку в историю графика только если есть реальный пинг
+            if (ms !== null && Number.isFinite(ms) && status === "ONLINE") {
+                const history = state.chartData.get(ip) || [];
+                history.push({ at: new Date(), ping: ms });
+                if (history.length > 120) history.shift();
+                state.chartData.set(ip, history);
+            }
         });
 
-        renderTable();
         updatedEl.textContent = `Время последнего обновления: ${now()}`;
+        renderTable();
 
         if (state.selectedIp) {
             updateModal();
         }
-    }, 1000);
+    }, 2000);
 }
 
-function startScan() {
+/* ─── Сканирование ─────────────────────────────────────────────────────────── */
+
+async function startScan() {
     if (state.scanning) return;
 
-    state.scanning = true;
-    scanBtn.disabled = true;
+    state.scanning    = true;
+    scanBtn.disabled  = true;
     scanBtn.textContent = "Сканирование...";
 
-    setTimeout(() => {
-        const { gateway, myIp, subnet, devices } = mockScan();
+    try {
+        // 1. Запустить сканирование на беке (блокирует до завершения)
+        await postScan();
 
-        state.devices = devices;
-        state.deviceCache = new Map(devices.map(device => [device.ipAddress, device]));
-        state.chartData = new Map();
+        // 2. Параллельно получить мета-данные и список устройств
+        const [gateway, myIp, subnet, devices] = await Promise.all([
+            fetchGateway(),
+            fetchCurrentIp(),
+            fetchSubnet(),
+            fetchDevices(),
+        ]);
 
+        state.devices     = devices;
+        state.deviceCache = new Map(devices.map(d => [d.ipAddress, d]));
+        state.chartData   = new Map();
+
+        // Заполнить начальные точки графика для онлайн-устройств
         devices.forEach(device => {
-            if (device.status === "ONLINE") {
-                const initial = mockPing();
-                device.avgPingMs = initial;
-                device.packetLossPercent = 0.0;
+            if (device.status === "ONLINE" &&
+                device.avgPingMs !== null && device.avgPingMs !== undefined) {
                 state.chartData.set(device.ipAddress, [
-                    { at: new Date(), ping: initial },
+                    { at: new Date(), ping: Number(device.avgPingMs) },
                 ]);
             }
         });
 
-        gatewayEl.textContent = gateway;
-        currentIpEl.textContent = myIp;
-        subnetEl.textContent = subnet;
-        countEl.textContent = String(devices.length);
-        updatedEl.textContent = `Время последнего обновления: ${now()}`;
+        gatewayEl.textContent   = gateway   || "—";
+        currentIpEl.textContent = myIp      || "—";
+        subnetEl.textContent    = subnet    || "—";
+        countEl.textContent     = String(devices.length);
+        updatedEl.textContent   = `Время последнего обновления: ${now()}`;
 
         renderTable();
-
-        state.scanning = false;
-        scanBtn.disabled = false;
-        scanBtn.textContent = "Запустить сканирование";
-
         startLivePing();
-    }, 500);
+
+    } catch (err) {
+        console.error("Ошибка сканирования:", err);
+        updatedEl.textContent = `Ошибка: ${err.message}`;
+    } finally {
+        state.scanning      = false;
+        scanBtn.disabled    = false;
+        scanBtn.textContent = "Запустить сканирование";
+    }
 }
+
+/* ─── Tooltip ──────────────────────────────────────────────────────────────── */
 
 function hideTooltip() {
     if (!chartTooltip) return;
@@ -275,22 +281,23 @@ function showTooltip(sample, x, y) {
     chartTooltip.classList.remove("hidden");
     chartTooltip.textContent = `${formatTimeLabel(sample.time)} · ${sample.ping.toFixed(1)} ms`;
     chartTooltip.style.left = `${x}px`;
-    chartTooltip.style.top = `${y}px`;
+    chartTooltip.style.top  = `${y}px`;
 }
 
+/* ─── Модальное окно графика ────────────────────────────────────────────────── */
+
 function syncModalHeader() {
-    const device = state.deviceCache.get(state.selectedIp);
+    const device      = state.deviceCache.get(state.selectedIp);
     const latestSample = state.pingHistory.length
         ? state.pingHistory[state.pingHistory.length - 1]
         : null;
     const avg = calculateAverage(state.pingHistory);
 
     pingTitleEl.textContent = state.selectedIp ? `Пинг: ${state.selectedIp}` : "График пинга";
-    pingIpEl.textContent = state.selectedIp || "—";
-    pingMacEl.textContent = formatMac(device?.macAddress);
-    //pingHostEl.textContent = device?.hostName || "—";
-    pingAvgEl.textContent = avg === null ? "—" : `${avg.toFixed(1)} ms`;
-    pingLastEl.textContent = latestSample ? `${latestSample.ping.toFixed(1)} ms` : "—";
+    pingIpEl.textContent    = state.selectedIp || "—";
+    pingMacEl.textContent   = formatMac(device?.macAddress);
+    pingAvgEl.textContent   = avg === null ? "—" : `${avg.toFixed(1)} ms`;
+    pingLastEl.textContent  = latestSample ? `${latestSample.ping.toFixed(1)} ms` : "—";
     pingSamplesEl.textContent = String(state.pingHistory.length);
 
     pingSubtitleEl.textContent =
@@ -301,15 +308,15 @@ function syncModalHeader() {
 
 function resizeCanvasToCssSize(canvas) {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr  = window.devicePixelRatio || 1;
 
     if (rect.width === 0 || rect.height === 0) return null;
 
-    const width = Math.round(rect.width * dpr);
+    const width  = Math.round(rect.width  * dpr);
     const height = Math.round(rect.height * dpr);
 
     if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
+        canvas.width  = width;
         canvas.height = height;
     }
 
@@ -335,32 +342,25 @@ function drawPingChart() {
 
     if (!samples.length) {
         ctx.save();
-        ctx.fillStyle = "#6b7280";
-        ctx.font = "14px Arial, sans-serif";
-        ctx.textAlign = "center";
+        ctx.fillStyle  = "#6b7280";
+        ctx.font       = "14px Arial, sans-serif";
+        ctx.textAlign  = "center";
         ctx.fillText("Пока нет измерений — подождите 1–2 секунды.", width / 2, height / 2);
         ctx.restore();
 
-        state.chartState.points = [];
+        state.chartState.points  = [];
         state.chartState.average = null;
-        state.chartState.min = null;
-        state.chartState.max = null;
+        state.chartState.min     = null;
+        state.chartState.max     = null;
         hideTooltip();
         return;
     }
 
     const points = samples
-        .map((sample, index) => ({
-            index,
-            time: sample.at,
-            ping: sample.ping,
-        }))
+        .map((sample, index) => ({ index, time: sample.at, ping: sample.ping }))
         .filter(sample => sample.time instanceof Date);
 
-    const values = points
-        .map(point => point.ping)
-        .filter(value => typeof value === "number" && Number.isFinite(value));
-
+    const values  = points.map(p => p.ping).filter(v => typeof v === "number" && Number.isFinite(v));
     const average = calculateAverage(samples);
 
     let minValue = values.length ? Math.min(...values) : 0;
@@ -371,35 +371,25 @@ function drawPingChart() {
         maxValue = Math.max(maxValue, average);
     }
 
-    if (minValue === maxValue) {
-        minValue -= 5;
-        maxValue += 5;
-    }
+    if (minValue === maxValue) { minValue -= 5; maxValue += 5; }
 
-    const minTime = points[0].time.getTime();
-    const maxTime = points[points.length - 1].time.getTime();
+    const minTime  = points[0].time.getTime();
+    const maxTime  = points[points.length - 1].time.getTime();
     const timeSpan = Math.max(1, maxTime - minTime);
 
-    const plotLeft = pad.left;
-    const plotTop = pad.top;
-    const plotWidth = width - pad.left - pad.right;
-    const plotHeight = height - pad.top - pad.bottom;
+    const plotLeft   = pad.left;
+    const plotTop    = pad.top;
+    const plotWidth  = width  - pad.left - pad.right;
+    const plotHeight = height - pad.top  - pad.bottom;
 
-    const yScale = value => {
-        const ratio = (value - minValue) / (maxValue - minValue);
-        return plotTop + plotHeight - ratio * plotHeight;
-    };
-
-    const xScale = time => {
-        const ratio = (time.getTime() - minTime) / timeSpan;
-        return plotLeft + ratio * plotWidth;
-    };
+    const yScale = value => plotTop + plotHeight - ((value - minValue) / (maxValue - minValue)) * plotHeight;
+    const xScale = time  => plotLeft + ((time.getTime() - minTime) / timeSpan) * plotWidth;
 
     ctx.save();
     ctx.strokeStyle = "#dbe3ee";
-    ctx.lineWidth = 1;
+    ctx.lineWidth   = 1;
 
-    for (let i = 0; i <= 4; i += 1) {
+    for (let i = 0; i <= 4; i++) {
         const y = plotTop + (plotHeight / 4) * i;
         ctx.beginPath();
         ctx.moveTo(plotLeft, y);
@@ -413,10 +403,10 @@ function drawPingChart() {
     ctx.lineTo(width - pad.right, plotTop + plotHeight);
     ctx.stroke();
 
-    ctx.fillStyle = "#6b7280";
-    ctx.font = "12px Arial, sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
+    ctx.fillStyle     = "#6b7280";
+    ctx.font          = "12px Arial, sans-serif";
+    ctx.textAlign     = "right";
+    ctx.textBaseline  = "middle";
     ctx.fillText(`${maxValue.toFixed(0)} ms`, plotLeft - 8, plotTop + 4);
     ctx.fillText(`${minValue.toFixed(0)} ms`, plotLeft - 8, plotTop + plotHeight - 4);
 
@@ -440,9 +430,9 @@ function drawPingChart() {
 
     ctx.save();
     ctx.strokeStyle = "#1d4ed8";
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
+    ctx.lineWidth   = 2.5;
+    ctx.lineJoin    = "round";
+    ctx.lineCap     = "round";
 
     let started = false;
     points.forEach(point => {
@@ -454,13 +444,7 @@ function drawPingChart() {
         const x = xScale(point.time);
         const y = yScale(point.ping);
 
-        visiblePoints.push({
-            index: point.index,
-            x,
-            y,
-            ping: point.ping,
-            time: point.time,
-        });
+        visiblePoints.push({ index: point.index, x, y, ping: point.ping, time: point.time });
 
         if (!started) {
             ctx.beginPath();
@@ -468,7 +452,6 @@ function drawPingChart() {
             started = true;
             return;
         }
-
         ctx.lineTo(x, y);
     });
 
@@ -483,21 +466,21 @@ function drawPingChart() {
     ctx.restore();
 
     const firstTime = formatTimeLabel(points[0].time);
-    const lastTime = formatTimeLabel(points[points.length - 1].time);
+    const lastTime  = formatTimeLabel(points[points.length - 1].time);
 
     ctx.save();
-    ctx.fillStyle = "#6b7280";
-    ctx.textAlign = "left";
+    ctx.fillStyle    = "#6b7280";
+    ctx.textAlign    = "left";
     ctx.textBaseline = "top";
     ctx.fillText(firstTime, plotLeft, height - pad.bottom + 10);
     ctx.textAlign = "right";
     ctx.fillText(lastTime, width - pad.right, height - pad.bottom + 10);
     ctx.restore();
 
-    state.chartState.points = visiblePoints;
+    state.chartState.points  = visiblePoints;
     state.chartState.average = average;
-    state.chartState.min = minValue;
-    state.chartState.max = maxValue;
+    state.chartState.min     = minValue;
+    state.chartState.max     = maxValue;
 
     if (chartTooltip.classList.contains("hidden")) {
         chartTooltip.style.transform = "translate(-9999px, -9999px)";
@@ -507,7 +490,7 @@ function drawPingChart() {
 function updateModal() {
     if (!state.selectedIp) return;
 
-    const history = state.chartData.get(state.selectedIp) || [];
+    const history    = state.chartData.get(state.selectedIp) || [];
     state.pingHistory = history.slice(-120);
 
     syncModalHeader();
@@ -515,7 +498,7 @@ function updateModal() {
 }
 
 function openPingModal(ip) {
-    state.selectedIp = ip;
+    state.selectedIp  = ip;
     state.pingHistory = state.chartData.get(ip)?.slice(-120) || [];
 
     pingModal.classList.remove("hidden");
@@ -526,7 +509,7 @@ function openPingModal(ip) {
 }
 
 function closePingModal() {
-    state.selectedIp = null;
+    state.selectedIp  = null;
     state.pingHistory = [];
     pingModal.classList.add("hidden");
     pingModal.setAttribute("aria-hidden", "true");
@@ -540,16 +523,16 @@ function updateTooltipFromMouse(event) {
     }
 
     const rect = chartCanvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
+    const x    = event.clientX - rect.left;
 
-    let nearest = null;
+    let nearest         = null;
     let nearestDistance = Infinity;
 
     state.chartState.points.forEach(point => {
         const distance = Math.abs(point.x - x);
         if (distance < nearestDistance) {
             nearestDistance = distance;
-            nearest = point;
+            nearest         = point;
         }
     });
 
@@ -564,6 +547,8 @@ function updateTooltipFromMouse(event) {
         Math.max(12, nearest.y - 38)
     );
 }
+
+/* ─── Event listeners ──────────────────────────────────────────────────────── */
 
 scanBtn.addEventListener("click", startScan);
 closePingModalBtn.addEventListener("click", closePingModal);
@@ -586,5 +571,3 @@ document.addEventListener("keydown", event => {
         closePingModal();
     }
 });
-
-startScan();

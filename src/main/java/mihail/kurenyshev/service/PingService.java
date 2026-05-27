@@ -17,18 +17,10 @@ public class PingService {
     private static final Pattern LOSS_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)% packet loss");
     private static final Pattern RTT_PATTERN  = Pattern.compile("= [0-9.]+/([0-9.]+)/");
 
-    /**
-     * Быстрая проверка: 1 пакет, 1 секунда ожидания.
-     * Используется и для обнаружения, и для обновления пинга.
-     */
+
     public PingResult ping1(String ipAddress) {
         return runPing("ping -c 1 -W 1 " + ipAddress);
     }
-
-    /**
-     * Точная проверка качества: 4 пакета.
-     * Используется только по явному запросу (детальная статистика).
-     */
     public PingResult ping4(String ipAddress) {
         return runPing("ping -c 4 -W 1 " + ipAddress);
     }

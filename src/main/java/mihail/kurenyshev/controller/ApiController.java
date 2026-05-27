@@ -24,10 +24,6 @@ public class ApiController {
         return scanService.getDevices();
     }
 
-    /**
-     * Лёгкий эндпоинт: только ip + статус + пинг.
-     * Используется для быстрого обновления пинга в UI (каждые 1-2 сек).
-     */
     @GetMapping("/ping-status")
     public List<Map<String, Object>> pingStatus() {
         return scanService.getPingStatus();

@@ -251,8 +251,20 @@ public class NetworkScanService {
 
         if (gateway != null && hit.ip.equals(gateway)) {
             device.setDeviceType(DeviceType.ROUTER);
+            if (device.getMacAddress() == null || device.getMacAddress().isBlank()) {
+                String gwMac = arpService.getMacForIpWithRetry(gateway, 3, 200);
+                if (gwMac != null) {
+                    device.setMacAddress(gwMac);
+                }
+            }
         } else if (currentIp != null && hit.ip.equals(currentIp)) {
             device.setDeviceType(DeviceType.CURRENT_DEVICE);
+            if (device.getMacAddress() == null || device.getMacAddress().isBlank()) {
+                String selfMac = arpService.getCurrentMac();
+                if (selfMac != null) {
+                    device.setMacAddress(selfMac);
+                }
+            }
         } else {
             device.setDeviceType(DeviceType.HOST);
         }
