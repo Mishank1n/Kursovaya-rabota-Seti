@@ -1,6 +1,7 @@
 package mihail.kurenyshev.entity;
 
 import jakarta.persistence.*;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -16,6 +17,9 @@ public class NetworkDevice {
     @Column(nullable = false, unique = true)
     private String ipAddress;
 
+    @Column(name = "mac_address", length = 32)
+    private String macAddress;
+
     private String hostName;
 
     @Enumerated(EnumType.STRING)
@@ -27,38 +31,100 @@ public class NetworkDevice {
     private DeviceStatus status = DeviceStatus.UNKNOWN;
 
     private Double avgPingMs;
+
     private Double packetLossPercent;
+
     private LocalDateTime firstSeenAt;
+
     private LocalDateTime lastSeenAt;
+
     private LocalDateTime lastCheckedAt;
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getId() {
+        return id;
+    }
 
-    public String getIpAddress() { return ipAddress; }
-    public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-    public String getHostName() { return hostName; }
-    public void setHostName(String hostName) { this.hostName = hostName; }
+    public String getIpAddress() {
+        return ipAddress;
+    }
 
-    public DeviceType getDeviceType() { return deviceType; }
-    public void setDeviceType(DeviceType deviceType) { this.deviceType = deviceType; }
+    public void setIpAddress(String ipAddress) {
+        this.ipAddress = ipAddress;
+    }
 
-    public DeviceStatus getStatus() { return status; }
-    public void setStatus(DeviceStatus status) { this.status = status; }
+    public String getMacAddress() {
+        return macAddress;
+    }
 
-    public Double getAvgPingMs() { return avgPingMs; }
-    public void setAvgPingMs(Double avgPingMs) { this.avgPingMs = avgPingMs; }
+    public void setMacAddress(String macAddress) {
+        this.macAddress = macAddress;
+    }
 
-    public Double getPacketLossPercent() { return packetLossPercent; }
-    public void setPacketLossPercent(Double packetLossPercent) { this.packetLossPercent = packetLossPercent; }
+    public String getHostName() {
+        return hostName;
+    }
 
-    public LocalDateTime getFirstSeenAt() { return firstSeenAt; }
-    public void setFirstSeenAt(LocalDateTime firstSeenAt) { this.firstSeenAt = firstSeenAt; }
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
+    }
 
-    public LocalDateTime getLastSeenAt() { return lastSeenAt; }
-    public void setLastSeenAt(LocalDateTime lastSeenAt) { this.lastSeenAt = lastSeenAt; }
+    public DeviceType getDeviceType() {
+        return deviceType;
+    }
 
-    public LocalDateTime getLastCheckedAt() { return lastCheckedAt; }
-    public void setLastCheckedAt(LocalDateTime lastCheckedAt) { this.lastCheckedAt = lastCheckedAt; }
+    public void setDeviceType(DeviceType deviceType) {
+        this.deviceType = deviceType;
+    }
+
+    public DeviceStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(DeviceStatus status) {
+        this.status = status;
+    }
+
+    public Double getAvgPingMs() {
+        return avgPingMs;
+    }
+
+    public void setAvgPingMs(Double avgPingMs) {
+        this.avgPingMs = avgPingMs;
+    }
+
+    public Double getPacketLossPercent() {
+        return packetLossPercent;
+    }
+
+    public void setPacketLossPercent(Double packetLossPercent) {
+        this.packetLossPercent = packetLossPercent;
+    }
+
+    public LocalDateTime getFirstSeenAt() {
+        return firstSeenAt;
+    }
+
+    public void setFirstSeenAt(LocalDateTime firstSeenAt) {
+        this.firstSeenAt = firstSeenAt;
+    }
+
+    public LocalDateTime getLastSeenAt() {
+        return lastSeenAt;
+    }
+
+    public void setLastSeenAt(LocalDateTime lastSeenAt) {
+        this.lastSeenAt = lastSeenAt;
+    }
+
+    public LocalDateTime getLastCheckedAt() {
+        return lastCheckedAt;
+    }
+
+    public void setLastCheckedAt(LocalDateTime lastCheckedAt) {
+        this.lastCheckedAt = lastCheckedAt;
+    }
 }

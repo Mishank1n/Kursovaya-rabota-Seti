@@ -11,8 +11,17 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,7 +38,6 @@ public class NetworkScanService {
     @Value("${app.scan.on-startup:true}")
     private boolean startupEnabled;
 
-    // Пул потоков для параллельного пинга
     private final ExecutorService executor = Executors.newFixedThreadPool(
             Math.max(32, Runtime.getRuntime().availableProcessors() * 4)
     );
@@ -45,13 +53,26 @@ public class NetworkScanService {
         this.scanRunRepository = scanRunRepository;
     }
 
-    public boolean isStartupEnabled() { return startupEnabled; }
-    public String getGatewayFromArp()  { return arpService.getFirstArpIp(); }
-    public String getCurrentIp()        { return arpService.getCurrentIp(); }
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public boolean isStartupEnabled() {
+        return startupEnabled;
+    }
+
+    public String getGatewayFromArp() {
+        return arpService.getFirstArpIp();
+    }
+
+    public String getCurrentIp() {
+        return arpService.getCurrentIp();
+    }
 
     public String getSubnet() {
         String gateway = getGatewayFromArp();
-        return arpService.getSubnetFromIp(gateway != null ? gateway : getCurrentIp());
+        String ip = gateway != null ? gateway : getCurrentIp();
+        return arpService.getSubnetFromIp(ip);
     }
 
     public List<NetworkDevice> getDevices() {
@@ -60,15 +81,13 @@ public class NetworkScanService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Лёгкий срез для быстрого UI-обновления пинга.
-     * Возвращает только ip, status, avgPingMs, packetLossPercent.
-     */
     public List<Map<String, Object>> getPingStatus() {
         return deviceRepository.findAll().stream()
+                .sorted(Comparator.comparing(NetworkDevice::getIpAddress))
                 .map(d -> {
-                    Map<String, Object> m = new HashMap<>();
+                    Map<String, Object> m = new LinkedHashMap<>();
                     m.put("ip", d.getIpAddress());
+                    m.put("macAddress", d.getMacAddress());
                     m.put("status", d.getStatus());
                     m.put("avgPingMs", d.getAvgPingMs());
                     m.put("packetLossPercent", d.getPacketLossPercent());
@@ -77,30 +96,34 @@ public class NetworkScanService {
                 .collect(Collectors.toList());
     }
 
-    // ─────────────────────────────────────────────
-    // ПОЛНОЕ СКАНИРОВАНИЕ (обнаружение новых устройств)
-    // ─────────────────────────────────────────────
-
     public ScanRun scanNow() {
-        String gateway   = getGatewayFromArp();
+        String gateway = getGatewayFromArp();
         String currentIp = getCurrentIp();
-        String subnet    = getSubnet();
-
+        String subnet = getSubnet();
         String baseIp = gateway != null ? gateway : currentIp;
-        if (baseIp == null) baseIp = "192.168.1.1";
+        if (baseIp == null || !baseIp.contains(".")) {
+            baseIp = "192.168.1.1";
+        }
 
         String[] parts = baseIp.split("\\.");
+        if (parts.length < 3) {
+            parts = new String[]{"192", "168", "1", "1"};
+        }
         String prefix = parts[0] + "." + parts[1] + "." + parts[2] + ".";
 
+        Map<String, String> macByIp = arpService.getArpMacByIp();
+        syncKnownMacAddresses(macByIp);
+
         List<String> targets = new ArrayList<>();
-        for (int i = 1; i <= 254; i++) targets.add(prefix + i);
+        for (int i = 1; i <= 254; i++) {
+            targets.add(prefix + i);
+        }
 
         LocalDateTime startedAt = LocalDateTime.now();
         long started = System.currentTimeMillis();
 
-        // Параллельный опрос всех IP одновременно (ping -c 1)
         List<CompletableFuture<ScanHit>> futures = targets.stream()
-                .map(ip -> CompletableFuture.supplyAsync(() -> probe(ip, gateway, currentIp), executor))
+                .map(ip -> CompletableFuture.supplyAsync(() -> probe(ip, macByIp), executor))
                 .toList();
 
         List<ScanHit> hits = futures.stream().map(CompletableFuture::join).toList();
@@ -109,20 +132,27 @@ public class NetworkScanService {
         int onlineCount = 0;
 
         for (ScanHit hit : hits) {
-            if (!hit.reachable) continue;
+            if (!hit.reachable) {
+                continue;
+            }
             alive.add(hit.ip);
             onlineCount++;
-            saveOrUpdateDevice(hit, gateway, currentIp, startedAt);
+            saveOrUpdateDevice(hit, gateway, currentIp, startedAt, macByIp);
         }
 
-        // Отмечаем офлайн тех, кого не увидели
         for (NetworkDevice device : deviceRepository.findAll()) {
-            if (!device.getIpAddress().startsWith(prefix)) continue;
-            if (alive.contains(device.getIpAddress())) continue;
+            if (!device.getIpAddress().startsWith(prefix)) {
+                continue;
+            }
+            if (alive.contains(device.getIpAddress())) {
+                continue;
+            }
+
             device.setStatus(DeviceStatus.OFFLINE);
             device.setAvgPingMs(null);
             device.setPacketLossPercent(100.0);
             device.setLastCheckedAt(startedAt);
+            applyMacIfKnown(device, macByIp);
             deviceRepository.save(device);
         }
 
@@ -134,38 +164,37 @@ public class NetworkScanService {
         run.setStartedAt(startedAt);
         run.setFinishedAt(LocalDateTime.now());
         run.setDurationMs(System.currentTimeMillis() - started);
-        scanRunRepository.save(run);
 
+        scanRunRepository.save(run);
         return run;
     }
 
-    /** Полное сканирование по расписанию (реже — только обнаружение) */
     @Scheduled(fixedDelayString = "${app.scan.interval-ms:30000}")
     public void scheduledScan() {
-        if (enabled) scanNow();
+        if (enabled) {
+            scanNow();
+        }
     }
 
-    // ─────────────────────────────────────────────
-    // БЫСТРОЕ ОБНОВЛЕНИЕ ПИНГА (только онлайн-устройства)
-    // ─────────────────────────────────────────────
-
-    /**
-     * Быстрый пинг всех известных онлайн-устройств параллельно.
-     * Запускается каждые 2 секунды — намного чаще полного скана.
-     */
     @Scheduled(fixedDelayString = "${app.ping.interval-ms:2000}")
     public void scheduledPingRefresh() {
-        if (!enabled) return;
+        if (!enabled) {
+            return;
+        }
+
+        Map<String, String> macByIp = arpService.getArpMacByIp();
+        syncKnownMacAddresses(macByIp);
 
         List<NetworkDevice> onlineDevices = deviceRepository.findAll().stream()
                 .filter(d -> d.getStatus() == DeviceStatus.ONLINE)
                 .collect(Collectors.toList());
 
-        if (onlineDevices.isEmpty()) return;
+        if (onlineDevices.isEmpty()) {
+            return;
+        }
 
         LocalDateTime now = LocalDateTime.now();
 
-        // Все устройства пингуем параллельно одновременно
         List<CompletableFuture<Void>> futures = onlineDevices.stream()
                 .map(device -> CompletableFuture.runAsync(() -> {
                     PingService.PingResult result = pingService.ping1(device.getIpAddress());
@@ -173,51 +202,83 @@ public class NetworkScanService {
                     device.setPacketLossPercent(result.packetLossPercent());
                     device.setStatus(result.reachable() ? DeviceStatus.ONLINE : DeviceStatus.OFFLINE);
                     device.setLastCheckedAt(now);
-                    if (result.reachable()) device.setLastSeenAt(now);
+                    if (result.reachable()) {
+                        device.setLastSeenAt(now);
+                    }
+                    applyMacIfKnown(device, macByIp);
                     deviceRepository.save(device);
                 }, executor))
                 .toList();
 
-        // Ждём завершения всех параллельных пингов
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
-    // ─────────────────────────────────────────────
-    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    // ─────────────────────────────────────────────
-
-    private ScanHit probe(String ip, String gateway, String currentIp) {
-        // Быстрая проверка: 1 пакет
+    private ScanHit probe(String ip, Map<String, String> macByIp) {
         PingService.PingResult ping = pingService.ping1(ip);
+
         if (!ping.reachable()) {
-            return new ScanHit(ip, false, ping.avgPingMs(), ping.packetLossPercent(), null);
+            return new ScanHit(ip, false, ping.avgPingMs(), ping.packetLossPercent(), null, null);
         }
 
         String host = null;
         try {
             host = java.net.InetAddress.getByName(ip).getHostName();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
-        return new ScanHit(ip, true, ping.avgPingMs(), ping.packetLossPercent(), host);
+        return new ScanHit(ip, true, ping.avgPingMs(), ping.packetLossPercent(), host, macByIp.get(ip));
     }
 
-    private void saveOrUpdateDevice(ScanHit hit, String gateway, String currentIp, LocalDateTime timestamp) {
+    private void saveOrUpdateDevice(ScanHit hit, String gateway, String currentIp, LocalDateTime timestamp, Map<String, String> macByIp) {
         NetworkDevice device = deviceRepository.findByIpAddress(hit.ip).orElseGet(NetworkDevice::new);
-        if (device.getFirstSeenAt() == null) device.setFirstSeenAt(timestamp);
+
+        if (device.getFirstSeenAt() == null) {
+            device.setFirstSeenAt(timestamp);
+        }
 
         device.setIpAddress(hit.ip);
-        device.setHostName(hit.hostName != null ? hit.hostName : hit.ip);
+        device.setHostName(hit.hostName != null && !hit.hostName.isBlank() ? hit.hostName : hit.ip);
         device.setStatus(DeviceStatus.ONLINE);
         device.setAvgPingMs(hit.avgPingMs);
         device.setPacketLossPercent(hit.packetLossPercent);
         device.setLastSeenAt(timestamp);
         device.setLastCheckedAt(timestamp);
 
-        if (hit.ip.equals(gateway)) device.setDeviceType(DeviceType.ROUTER);
-        else if (hit.ip.equals(currentIp)) device.setDeviceType(DeviceType.CURRENT_DEVICE);
-        else device.setDeviceType(DeviceType.HOST);
+        if (hit.ip.equals(gateway)) {
+            device.setDeviceType(DeviceType.ROUTER);
+        } else if (hit.ip.equals(currentIp)) {
+            device.setDeviceType(DeviceType.CURRENT_DEVICE);
+        } else {
+            device.setDeviceType(DeviceType.HOST);
+        }
 
+        applyMacIfKnown(device, macByIp, hit.macAddress);
         deviceRepository.save(device);
+    }
+
+    private void syncKnownMacAddresses(Map<String, String> macByIp) {
+        if (macByIp == null || macByIp.isEmpty()) {
+            return;
+        }
+
+        for (NetworkDevice device : deviceRepository.findAll()) {
+            applyMacIfKnown(device, macByIp);
+            deviceRepository.save(device);
+        }
+    }
+
+    private void applyMacIfKnown(NetworkDevice device, Map<String, String> macByIp) {
+        applyMacIfKnown(device, macByIp, null);
+    }
+
+    private void applyMacIfKnown(NetworkDevice device, Map<String, String> macByIp, String explicitMac) {
+        String mac = explicitMac;
+        if (mac == null && macByIp != null) {
+            mac = macByIp.get(device.getIpAddress());
+        }
+        if (mac != null && !mac.isBlank() && !mac.equalsIgnoreCase(device.getMacAddress())) {
+            device.setMacAddress(mac.toLowerCase());
+        }
     }
 
     private static class ScanHit {
@@ -226,13 +287,15 @@ public class NetworkScanService {
         final double avgPingMs;
         final double packetLossPercent;
         final String hostName;
+        final String macAddress;
 
-        ScanHit(String ip, boolean reachable, double avgPingMs, double packetLossPercent, String hostName) {
+        ScanHit(String ip, boolean reachable, double avgPingMs, double packetLossPercent, String hostName, String macAddress) {
             this.ip = ip;
             this.reachable = reachable;
             this.avgPingMs = avgPingMs;
             this.packetLossPercent = packetLossPercent;
             this.hostName = hostName;
+            this.macAddress = macAddress;
         }
     }
 }
