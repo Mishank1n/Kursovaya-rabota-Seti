@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -62,7 +61,7 @@ public class NetworkScanService {
     }
 
     public String getGatewayFromArp() {
-        return arpService.getFirstArpIp();
+        return arpService.getGatewayIp();
     }
 
     public String getCurrentIp() {
@@ -100,6 +99,7 @@ public class NetworkScanService {
         String gateway = getGatewayFromArp();
         String currentIp = getCurrentIp();
         String subnet = getSubnet();
+
         String baseIp = gateway != null ? gateway : currentIp;
         if (baseIp == null || !baseIp.contains(".")) {
             baseIp = "192.168.1.1";
@@ -109,10 +109,12 @@ public class NetworkScanService {
         if (parts.length < 3) {
             parts = new String[]{"192", "168", "1", "1"};
         }
+
         String prefix = parts[0] + "." + parts[1] + "." + parts[2] + ".";
 
-        Map<String, String> macByIp = arpService.getArpMacByIp();
-        syncKnownMacAddresses(macByIp);
+        if (gateway != null) {
+            pingService.ping1(gateway);
+        }
 
         List<String> targets = new ArrayList<>();
         for (int i = 1; i <= 254; i++) {
@@ -123,10 +125,13 @@ public class NetworkScanService {
         long started = System.currentTimeMillis();
 
         List<CompletableFuture<ScanHit>> futures = targets.stream()
-                .map(ip -> CompletableFuture.supplyAsync(() -> probe(ip, macByIp), executor))
+                .map(ip -> CompletableFuture.supplyAsync(() -> probe(ip), executor))
                 .toList();
 
         List<ScanHit> hits = futures.stream().map(CompletableFuture::join).toList();
+
+        Map<String, String> macByIp = arpService.getArpMacByIp();
+        syncKnownMacAddresses(macByIp);
 
         Set<String> alive = new HashSet<>();
         int onlineCount = 0;
@@ -135,15 +140,17 @@ public class NetworkScanService {
             if (!hit.reachable) {
                 continue;
             }
+
             alive.add(hit.ip);
             onlineCount++;
             saveOrUpdateDevice(hit, gateway, currentIp, startedAt, macByIp);
         }
 
         for (NetworkDevice device : deviceRepository.findAll()) {
-            if (!device.getIpAddress().startsWith(prefix)) {
+            if (device.getIpAddress() == null || !device.getIpAddress().startsWith(prefix)) {
                 continue;
             }
+
             if (alive.contains(device.getIpAddress())) {
                 continue;
             }
@@ -164,7 +171,6 @@ public class NetworkScanService {
         run.setStartedAt(startedAt);
         run.setFinishedAt(LocalDateTime.now());
         run.setDurationMs(System.currentTimeMillis() - started);
-
         scanRunRepository.save(run);
         return run;
     }
@@ -213,11 +219,10 @@ public class NetworkScanService {
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
-    private ScanHit probe(String ip, Map<String, String> macByIp) {
+    private ScanHit probe(String ip) {
         PingService.PingResult ping = pingService.ping1(ip);
-
         if (!ping.reachable()) {
-            return new ScanHit(ip, false, ping.avgPingMs(), ping.packetLossPercent(), null, null);
+            return new ScanHit(ip, false, ping.avgPingMs(), ping.packetLossPercent(), null);
         }
 
         String host = null;
@@ -226,7 +231,7 @@ public class NetworkScanService {
         } catch (Exception ignored) {
         }
 
-        return new ScanHit(ip, true, ping.avgPingMs(), ping.packetLossPercent(), host, macByIp.get(ip));
+        return new ScanHit(ip, true, ping.avgPingMs(), ping.packetLossPercent(), host);
     }
 
     private void saveOrUpdateDevice(ScanHit hit, String gateway, String currentIp, LocalDateTime timestamp, Map<String, String> macByIp) {
@@ -244,15 +249,15 @@ public class NetworkScanService {
         device.setLastSeenAt(timestamp);
         device.setLastCheckedAt(timestamp);
 
-        if (hit.ip.equals(gateway)) {
+        if (gateway != null && hit.ip.equals(gateway)) {
             device.setDeviceType(DeviceType.ROUTER);
-        } else if (hit.ip.equals(currentIp)) {
+        } else if (currentIp != null && hit.ip.equals(currentIp)) {
             device.setDeviceType(DeviceType.CURRENT_DEVICE);
         } else {
             device.setDeviceType(DeviceType.HOST);
         }
 
-        applyMacIfKnown(device, macByIp, hit.macAddress);
+        applyMacIfKnown(device, macByIp);
         deviceRepository.save(device);
     }
 
@@ -268,14 +273,11 @@ public class NetworkScanService {
     }
 
     private void applyMacIfKnown(NetworkDevice device, Map<String, String> macByIp) {
-        applyMacIfKnown(device, macByIp, null);
-    }
-
-    private void applyMacIfKnown(NetworkDevice device, Map<String, String> macByIp, String explicitMac) {
-        String mac = explicitMac;
-        if (mac == null && macByIp != null) {
-            mac = macByIp.get(device.getIpAddress());
+        if (device == null || macByIp == null || macByIp.isEmpty()) {
+            return;
         }
+
+        String mac = macByIp.get(device.getIpAddress());
         if (mac != null && !mac.isBlank() && !mac.equalsIgnoreCase(device.getMacAddress())) {
             device.setMacAddress(mac.toLowerCase());
         }
@@ -287,15 +289,13 @@ public class NetworkScanService {
         final double avgPingMs;
         final double packetLossPercent;
         final String hostName;
-        final String macAddress;
 
-        ScanHit(String ip, boolean reachable, double avgPingMs, double packetLossPercent, String hostName, String macAddress) {
+        ScanHit(String ip, boolean reachable, double avgPingMs, double packetLossPercent, String hostName) {
             this.ip = ip;
             this.reachable = reachable;
             this.avgPingMs = avgPingMs;
             this.packetLossPercent = packetLossPercent;
             this.hostName = hostName;
-            this.macAddress = macAddress;
         }
     }
 }
