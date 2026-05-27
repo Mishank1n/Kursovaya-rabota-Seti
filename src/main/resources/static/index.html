@@ -1,106 +1,101 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Network Monitor</title>
-  <link rel="stylesheet" href="style.css" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Monitor</title>
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="container">
+<div class="container">
     <header class="hero">
-      <div class="hero-copy">
-        <div class="badge">ARP gateway + ping</div>
-        <h1>Мониторинг локальной сети</h1>
-        <p>Приложение берёт роутер из ARP-таблицы, затем перебирает IP подсети и сохраняет устройства, которые отвечают на ping. По клику на IP открывается живой график изменения задержки.</p>
-      </div>
-      <button id="scanBtn" type="button">Запустить сканирование</button>
+        <div class="hero-copy">
+            <div class="badge">Курсовая работа по предмету "Сети и системы передачи информации"</div>
+            <h1>Мониторинг локальной сети</h1>
+        </div>
+        <button id="scanBtn" type="button">Запустить сканирование</button>
     </header>
 
     <section class="cards">
-      <div class="card"><span>Gateway</span><strong id="gateway">—</strong></div>
-      <div class="card"><span>Current IP</span><strong id="currentIp">—</strong></div>
-      <div class="card"><span>Подсеть</span><strong id="subnet">—</strong></div>
-      <div class="card"><span>Устройств</span><strong id="count">0</strong></div>
+        <div class="card"><span>Gateway</span><strong id="gateway">—</strong></div>
+        <div class="card"><span>Current IP</span><strong id="currentIp">—</strong></div>
+        <div class="card"><span>Подсеть</span><strong id="subnet">—</strong></div>
+        <div class="card"><span>Устройств</span><strong id="count">0</strong></div>
     </section>
 
     <section class="panel">
-      <div class="panel-head">
-        <h2>Найденные устройства</h2>
-        <span id="updated">Ожидание данных...</span>
-      </div>
+        <div class="panel-head">
+            <h2>Найденные устройства</h2>
+            <span id="updated">Ожидание данных...</span>
+        </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>IP</th>
-              <th>MAC</th>
-              <th>Тип</th>
-              <th>Статус</th>
-              <th>Hostname</th>
-              <th>Средний ping</th>
-              <th>Packet loss</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>IP</th>
+                    <th>MAC</th>
+                    <th>Тип</th>
+                    <th>Статус</th>
+                    <th>Hostname</th>
+                    <th>Средний ping</th>
+                    <th>Packet loss</th>
+                </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
     </section>
-  </div>
+</div>
 
-  <div id="pingModal" class="modal hidden" aria-hidden="true">
+<div id="pingModal" class="modal hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-modal></div>
 
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pingTitle">
-      <div class="modal-header">
-        <div>
-          <div class="badge">Live ping chart</div>
-          <h2 id="pingTitle">График пинга</h2>
-          <p id="pingSubtitle">Нажмите на IP в таблице, чтобы открыть живой график.</p>
+        <div class="modal-header">
+            <div>
+                <div class="badge">Live ping chart</div>
+                <h2 id="pingTitle">График пинга</h2>
+                <p id="pingSubtitle">Нажмите на IP в таблице, чтобы открыть живой график.</p>
+            </div>
+            <button id="closePingModal" class="ghost-btn" type="button">Закрыть</button>
         </div>
-        <button id="closePingModal" class="ghost-btn" type="button">Закрыть</button>
-      </div>
 
-      <div class="ping-meta">
-        <div class="stat">
-          <span>IP</span>
-          <strong id="pingIp">—</strong>
+        <div class="ping-meta">
+            <div class="stat">
+                <span>IP</span>
+                <strong id="pingIp">—</strong>
+            </div>
+            <div class="stat">
+                <span>MAC</span>
+                <strong id="pingMac">—</strong>
+            </div>
+            <div class="stat">
+                <span>Hostname</span>
+                <strong id="pingHost">—</strong>
+            </div>
+            <div class="stat">
+                <span>Среднее</span>
+                <strong id="pingAvg">—</strong>
+            </div>
+            <div class="stat">
+                <span>Последний</span>
+                <strong id="pingLast">—</strong>
+            </div>
+            <div class="stat">
+                <span>Точек</span>
+                <strong id="pingSamples">0</strong>
+            </div>
         </div>
-        <div class="stat">
-          <span>MAC</span>
-          <strong id="pingMac">—</strong>
-        </div>
-        <div class="stat">
-          <span>Hostname</span>
-          <strong id="pingHost">—</strong>
-        </div>
-        <div class="stat">
-          <span>Среднее</span>
-          <strong id="pingAvg">—</strong>
-        </div>
-        <div class="stat">
-          <span>Последний</span>
-          <strong id="pingLast">—</strong>
-        </div>
-        <div class="stat">
-          <span>Точек</span>
-          <strong id="pingSamples">0</strong>
-        </div>
-      </div>
 
-      <div class="chart-shell">
-        <canvas id="pingChart"></canvas>
-        <div id="chartTooltip" class="chart-tooltip hidden"></div>
-      </div>
-
-      <div class="modal-footer">
-        <span>Обновление раз в секунду</span>
-        <span>Средняя линия показана на графике</span>
-      </div>
+        <div class="chart-shell">
+            <canvas id="pingChart"></canvas>
+            <div id="chartTooltip" class="chart-tooltip hidden"></div>
+        </div>
     </div>
-  </div>
+</div>
 
-  <script src="script.js"></script>
+<script src="script.js"></script>
 </body>
 </html>
