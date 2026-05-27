@@ -175,7 +175,7 @@ function renderTable() {
         tdStatus.appendChild(createStatusBadge(isOnline));
         tr.appendChild(tdStatus);
 
-        tr.appendChild(createCell(device.hostName));
+        //tr.appendChild(createCell(device.hostName));
         tr.appendChild(createCell(isOnline ? formatMs(device.avgPingMs) : "—"));
         tr.appendChild(
             createCell(
@@ -288,7 +288,7 @@ function syncModalHeader() {
     pingTitleEl.textContent = state.selectedIp ? `Пинг: ${state.selectedIp}` : "График пинга";
     pingIpEl.textContent = state.selectedIp || "—";
     pingMacEl.textContent = formatMac(device?.macAddress);
-    pingHostEl.textContent = device?.hostName || "—";
+    //pingHostEl.textContent = device?.hostName || "—";
     pingAvgEl.textContent = avg === null ? "—" : `${avg.toFixed(1)} ms`;
     pingLastEl.textContent = latestSample ? `${latestSample.ping.toFixed(1)} ms` : "—";
     pingSamplesEl.textContent = String(state.pingHistory.length);
